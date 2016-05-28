@@ -1,5 +1,5 @@
 @echo off
-set tempdir=C:\Users\brennanl\Current [Temp]
+set tempdir=
 REM Remove read-only attribute
 attrib -R "%tempdir%\*" /S
 
