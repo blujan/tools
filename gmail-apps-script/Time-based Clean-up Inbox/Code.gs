@@ -16,18 +16,17 @@
  */
 /// From https://stackoverflow.com/questions/6117814/get-week-of-year-in-javascript-like-in-php
 function getWeekNumber(d) {
-    // Copy date so don't modify original
-    d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    // Set to nearest Thursday: current date + 4 - current day number
-    // Make Sunday's day number 7
-    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
-    // Get first day of year
-    var yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
-    // Calculate full weeks to nearest Thursday
-    var weekNo = Math.ceil(( ( (d - yearStart) / 86400000) + 1)/7);
-    // Return array of year and week number
-    //return [d.getUTCFullYear(), weekNo];
-    return ((d.getUTCFullYear() * 100) + weekNo);
+  // Copy date so don't modify original
+  d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  // Set to nearest Thursday: current date + 4 - current day number
+  // Make Sunday's day number 7
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  // Get first day of year
+  var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  // Calculate full weeks to nearest Thursday
+  var weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  // Return array of year and week number
+  return ((d.getUTCFullYear() * 100) + weekNo);
 }
 
 async function TrashThreads(threads) {
@@ -35,102 +34,120 @@ async function TrashThreads(threads) {
 }
 
 function Trash(search, index) {
+  Logger.log("Starting Trash...");
   var total = 0;
   var start = 0;
   do {
     var threads = GmailApp.search(search, start, 500);
-    //Logger.log(threads.length);
-    total = total + threads.length;
-    var i,j,threadarray,chunk = 50;
-    for (i=0,j=threads.length; i < j; i += chunk) {
+    total += threads.length;
+    var i, j, threadarray, chunk = 50;
+    for (i = 0, j = threads.length; i < j; i += chunk) {
       threadarray = threads.slice(i, i + chunk);
       TrashThreads(threadarray);
     }
-    //start = start + 500;
   } while (threads.length == 500);
-  Logger.log('[' + search + '] Threads moved to trash: ' + total);
+  Logger.log('Total threads processed: ' + total);
 }
 
 function Archive(search, index) {
+  Logger.log("Starting Archive...");
   var total = 0;
-  var start = 0;
   do {
     var threads = GmailApp.search(search, 0, 100);
-    Logger.log(threads.length);
-    total = total + threads.length;
-    Logger.log(total);
+    total += threads.length;
     GmailApp.moveThreadsToArchive(threads);
-    //for (var i = 0; i < threads.length; i++) {
-    //  threads[i].moveToArchive();
-    //}
-    //start = start + 100;
   } while (threads.length == 100);
-  Logger.log('Threads archived: ' + total);
+  Logger.log('Total threads processed: ' + total);
 }
 
-function TagWorker_2(yesterday, currentweek, threads) {
-  var yest_label = GmailApp.getUserLabelByName("Yesterday");
-  var lastw_label = GmailApp.getUserLabelByName("Last Week");
-  var twow_label = GmailApp.getUserLabelByName("Two Weeks Ago");
-  for (var i = 0; i < threads.length; i++) {
-    var msgDate = threads[i].getLastMessageDate();
-    msgDate.setHours(0, 0, 0, 0);
-    var msgWeek = getWeekNumber(msgDate);
-    //Logger.log('Msg Week: ' + msgWeek);
-    var msgLabels = threads[i].getLabels();
-    //Logger.log(msgDate);
-    if (msgDate.getTime() === yesterday.getTime()) { // thread date == yesterday
-      threads[i].addLabel(yest_label);
-    } else {
-      if (msgLabels.includes(yest_label)) {
-        threads[i].removeLabel(yest_label);
+function LabelThreadsWorker(data, threads) {
+  var labels = data[0];
+  var times = data[1];
+
+  for (var i = threads.length; i--;) {
+    var thread_labels = threads[i].getLabels();
+    var thread_date = threads[i].getLastMessageDate();
+    thread_date.setHours(0, 0, 0, 0);
+    var thread_week_number = getWeekNumber(thread_date);
+
+    for (var k = labels.length; k--;) {
+      // removeLabel does not to an automatic refresh compared to
+      // label.removeFromThreads()
+      if (thread_labels.includes(labels[k])) {
+        threads[i].removeLabel(labels[k]);
       }
-      if ((currentweek - 1) == msgWeek) {
-        threads[i].addLabel(lastw_label);
-      } else {
-        if (msgLabels.includes(lastw_label)) {          
-          threads[i].removeLabel(lastw_label);
-        }
-        if ((currentweek - 2) == msgWeek) {
-          threads[i].addLabel(twow_label);
-        } else {
-          if (msgLabels.includes(twow_label)) {
-            threads[i].removeLabel(twow_label);
-          }
-        }
-      }
+    }
+    if (thread_date.getTime() === times[0]) {
+      // Yesterday
+      threads[i].addLabel(labels[0]);
+    } else if (thread_date.getTime() === times[1]) {
+      // Ereyesterday
+      threads[i].addLabel(labels[1]);
+    }
+    if (thread_week_number == times[2]) {
+      // Last Week
+      threads[i].addLabel(labels[2]);
+    } else if (thread_week_number == times[3]) {
+      // Two Weeks Ago
+      threads[i].addLabel(labels[3]);
     }
   }
 }
 
-async function TagWorker_1(yesterday, currentweek, threads) {
-  await TagWorker_2(yesterday, currentweek, threads);
+async function LabelThreads(data, threads) {
+  await LabelThreadsWorker(data, threads);
 }
 
-function PerformTagging(search, index) {
-  Logger.log("PerformTagging");
-  var total = 0;
-  var yesterday = new Date();
-  yesterday.setHours(0, 0, 0, 0);
-  yesterday.setDate(yesterday.getDate() - 1);
+function GetLabelsAndDates() {
+  // Generate GmailLabel[] object
+  var labels = ["Yesterday", "Ereyesterday", "Last Week", "Two Weeks Ago"];
+  var label_array = [];
+  var j;
+  for (var i = 0, j = labels.length; i < j; i++) {
+    label_array.push(GmailApp.getUserLabelByName(labels[i]));
+  }
+  // Generate the time objects
   var today = new Date();
-  var currentweek = getWeekNumber(today);
-  Logger.log('Current Week #: ' + currentweek);
+  today.setHours(0, 0, 0, 0);
+  var this_week = getWeekNumber(today)
+  Logger.log('Current week #: ' + this_week);
+
+  var yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  yesterday.setHours(0, 0, 0, 0);
+  var ereyesterday = new Date();
+  ereyesterday.setDate(yesterday.getDate() - 1);
+  ereyesterday.setHours(0, 0, 0, 0);
+
+  var last_week_date = new Date();
+  last_week_date.setDate(today.getDate() - 7);
+  last_week_date.setHours(0, 0, 0, 0);
+  var last_week = getWeekNumber(last_week_date);
+  var week_before_last_date = new Date();
+  week_before_last_date.setDate(today.getDate() - 14);
+  week_before_last_date.setHours(0, 0, 0, 0);
+  var week_before_last = getWeekNumber(week_before_last_date);
+
+  var times = [yesterday.getTime(), ereyesterday.getTime(), last_week, week_before_last];
+  return [label_array, times];
+}
+
+function UpdateLabels(search, index) {
+  Logger.log("Starting UpdateLabels...");
+  var data = GetLabelsAndDates();
+  var total = 0;
   var start = 0;
   do {
     var threads = GmailApp.search(search, start, 500);
-    //Logger.log(threads.length);
-    total = total + threads.length;
-    //Logger.log(total);
-    var i,j,threadarray,chunk = 50;
-    for (i=0,j=threads.length; i < j; i += chunk) {
+    total += threads.length;
+    start += 500;
+    var i, j, threadarray, chunk = 50;
+    for (i = 0, j = threads.length; i < j; i += chunk) {
       threadarray = threads.slice(i, i + chunk);
-      TagWorker_1(yesterday, currentweek, threadarray);
+      LabelThreads(data, threadarray);
     }
-    start = start + 500;
   } while (threads.length == 500);
-  Logger.log('Total processed: ' + total);
-  return total;
+  Logger.log('Total threads processed: ' + total);
 }
 
 function cleanUp() {
@@ -144,8 +161,7 @@ function ArchiveInbox() {
 }
 
 function TagEmails() {
-  var total = 0;
   var searches = ['category:primary -older_than:30d'];
-  searches.forEach(PerformTagging);
+  searches.forEach(UpdateLabels);
 }
 
