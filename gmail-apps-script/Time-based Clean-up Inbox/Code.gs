@@ -98,6 +98,13 @@ async function LabelThreads(data, threads) {
   await LabelThreadsWorker(data, threads);
 }
 
+function GetDateDaysOffsetFrom(day_offset) {
+  var new_date = new Date();
+  new_date.setDate(new_date.getDate() - day_offset);
+  new_date.setHours(0, 0, 0, 0);
+  return new_date;
+}
+
 function GetLabelsAndDates() {
   // Generate GmailLabel[] object
   var labels = ["Yesterday", "Ereyesterday", "Last Week", "Two Weeks Ago"];
@@ -107,26 +114,12 @@ function GetLabelsAndDates() {
     label_array.push(GmailApp.getUserLabelByName(labels[i]));
   }
   // Generate the time objects
-  var today = new Date();
-  today.setHours(0, 0, 0, 0);
-  var this_week = getWeekNumber(today)
-  Logger.log('Current week #: ' + this_week);
+  Logger.log('Current week #: ' + getWeekNumber(GetDateDaysOffsetFrom(0)));
 
-  var yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-  yesterday.setHours(0, 0, 0, 0);
-  var ereyesterday = new Date();
-  ereyesterday.setDate(yesterday.getDate() - 1);
-  ereyesterday.setHours(0, 0, 0, 0);
-
-  var last_week_date = new Date();
-  last_week_date.setDate(today.getDate() - 7);
-  last_week_date.setHours(0, 0, 0, 0);
-  var last_week = getWeekNumber(last_week_date);
-  var week_before_last_date = new Date();
-  week_before_last_date.setDate(today.getDate() - 14);
-  week_before_last_date.setHours(0, 0, 0, 0);
-  var week_before_last = getWeekNumber(week_before_last_date);
+  var yesterday = GetDateDaysOffsetFrom(1);
+  var ereyesterday = GetDateDaysOffsetFrom(2);
+  var last_week = getWeekNumber(GetDateDaysOffsetFrom(7));
+  var week_before_last = getWeekNumber(GetDateDaysOffsetFrom(14));
 
   var times = [yesterday.getTime(), ereyesterday.getTime(), last_week, week_before_last];
   return [label_array, times];
